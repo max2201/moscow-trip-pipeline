@@ -1,0 +1,5 @@
+{
+  "limits": {"msk": 8000},
+  "maxKm": 12,
+  "maxReviewPages": 20
+}
