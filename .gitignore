@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+cache/trip_data.json
+.DS_Store
+work/
