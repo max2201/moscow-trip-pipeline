@@ -32,14 +32,13 @@ def search_url(source, stop):
     ru = lambda x: dt.date.fromisoformat(x).strftime("%d.%m.%Y")
     params = {
         "ostrovok": {"dates": f"{ru(ci)}-{ru(co)}", "guests": 2},
-        "ozon": {"Dlts": 2, "checkIn": ci, "checkOut": co, "cityOrRegionId": 140158000},
-        "yandex": {"adults": 2, "checkinDate": ci, "checkoutDate": co, "geoId": 213, "roomCount": 1},
+        "ozon": {"Dlts": 2, "checkIn": ci, "checkOut": co, "cityOrRegionId": 140158000, "filters": "price=40000"},
+        "yandex": {"adults": 2, "checkinDate": ci, "checkoutDate": co, "geoId": 213, "roomCount": 1, "maxPrice": 40000},
         "101hotels": {"in": ru(ci), "out": ru(co), "adults": 2},
         "tvil": {"o[maleCount]": 2, "o[arrival]": ci, "o[departure]": co},
         "tutu": {"check_in": ci, "check_out": co, "room[0]": "2.", "geo_id": 2657260, "geo_type": "locality", "geo_name": "Москва"},
-        "onetwotrip": {"id": 524901, "to": "Москва", "type": "geo", "country_slug": "russia", "city_slug": "moscow", "date_start": ci, "date_end": co, "rooms[0]": 2, "country_code": "RU", "page": 1, "s": "true"},
-        "sutochno": {"guests_adults": 2, "id": 397366, "type": "city", "term": "Москва", "occupied": f"{ci};{co}",
-                     "SW.lat": 55.65, "SW.lng": 37.43, "NE.lat": 55.86, "NE.lng": 37.81},
+        "onetwotrip": {"id": 524901, "to": "Москва", "type": "geo", "country_slug": "russia", "city_slug": "moscow", "date_start": ci, "date_end": co, "rooms[0]": 2, "country_code": "RU", "page": 1, "s": "true", "prices[minPriceValue]": 0, "prices[maxPriceValue]": 40000},
+        "sutochno": {"guests_adults": 2, "id": 397366, "type": "city", "term": "Москва", "occupied": f"{ci};{co}"},
     }.get(source, {})
     return base + ("?" + urlencode(params) if params else "")
 
@@ -97,7 +96,7 @@ def normalize(source, item, stop, collected_at):
     return out
 
 
-def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=False):
+def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=False, coverage=None):
     if source not in SOURCES or source == "ostrovok":
         raise ValueError("Неизвестный дополнительный источник")
     stamp = now()
@@ -115,18 +114,19 @@ def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=F
     if previous.get("ci") == stop["ci"] and previous.get("co") == stop["co"] and len(normalized) < len(previous.get("items", [])) * .5:
         raise ValueError("Выдача уменьшилась больше чем вдвое: предыдущий снимок сохранён")
     write_json(snapshot_path(stop["id"], source), {"ci": stop["ci"], "co": stop["co"], "adults": 2,
-               "collectedAt": stamp, "mode": mode, "complete": complete, "items": normalized})
+               "collectedAt": stamp, "mode": mode, "complete": complete, "coverage": coverage, "items": normalized})
     set_status(source, stop, "ok", "", len(normalized))
     return normalized
 
 
-def set_status(source, stop, state, message="", count=None, collected_at=None):
+def set_status(source, stop, state, message="", count=None, collected_at=None, coverage=None):
     path = CACHE / "source_status.json"
     statuses = read_json(path, {}) or {}
     key = f"{stop['id']}:{source}"
     previous = statuses.get(key, {})
     statuses[key] = {"state": state, "attemptedAt": now(), "message": message, "count": count,
-                     "collectedAt": collected_at or previous.get("collectedAt")}
+                     "collectedAt": collected_at or previous.get("collectedAt"),
+                     "coverage": coverage if coverage is not None else previous.get("coverage")}
     write_json(path, statuses)
 
 
@@ -159,5 +159,6 @@ def source_statuses(stops):
                 "message": status.get("message", ""), "attemptedAt": status.get("attemptedAt"),
                 "collectedAt": snap.get("collectedAt") if matching else status.get("collectedAt"),
                 "mode": snap.get("mode", "automatic" if source == "ostrovok" else None),
-                "complete": bool(snap.get("complete")), "automatic": source in {"ostrovok", "101hotels", "ozon", "yandex", "sutochno", "tvil", "tutu", "onetwotrip"}})
+                "complete": bool(status.get("coverage", {}).get("complete")) if source == "ostrovok" and status.get("coverage") else bool(snap.get("complete")),
+                "coverage": status.get("coverage") if source == "ostrovok" else snap.get("coverage"), "automatic": source in {"ostrovok", "101hotels", "ozon", "yandex", "sutochno", "tvil", "tutu", "onetwotrip"}})
     return result

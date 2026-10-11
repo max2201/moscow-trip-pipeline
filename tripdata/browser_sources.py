@@ -7,29 +7,48 @@ SUPPORTED = {"ozon", "yandex", "sutochno", "tvil", "tutu", "onetwotrip"}
 SCRIPT = (Path(__file__).with_name("collect_cards.js")).read_text(encoding="utf-8")
 
 
-def crawl(source, stop, max_pages=20, log=print):
+def crawl(source, stop, max_pages=1000, log=print, coverage=None):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(locale="ru-RU", viewport={"width": 1440, "height": 1000})
+        context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
         page = context.new_page()
         page.goto(search_url(source, stop), wait_until="domcontentloaded", timeout=60000)
-        if source == "yandex":
+        if source == "yandex" and not page.locator('h3[itemprop="name"]').count():
             button = page.get_by_role("button", name="Найти", exact=True)
-            button.wait_for(timeout=20000)
-            button.click()
+            if button.count():
+                button.click()
+        # The initial list can contain only skeleton prices. Nine seconds of
+        # empty parser results did not mean there were no hotels.
+        try:
+            page.wait_for_function(f"arg => ({SCRIPT})(arg).length > 0", arg={"source": source, "stop": stop}, timeout=90000)
+        except Exception:
+            raise ValueError("За 90 секунд не появились подтверждённые цены; предыдущий снимок сохранён")
+        if source == "onetwotrip":
+            # URL price parameters alone do not initialise the visible range.
+            # The UI is explicitly in whole-stay mode ("8 ночей").
+            page.get_by_role("button", name=f'{stop["nights"]} ночей', exact=True).wait_for(state="visible")
+            price_inputs = page.locator('input[inputmode="numeric"]')
+            price_inputs.nth(1).fill("40000")
+            price_inputs.nth(1).press("Tab")
+            page.wait_for_timeout(1500)
         result = {}
         unchanged = 0
+        reason = "limit"
+        complete = False
+        seen_cards = set()
         for step in range(max_pages):
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(1500)
             title = page.title().lower()
             if "captcha" in page.url.lower() or "капч" in title or "доступ ограничен" in title:
                 raise ValueError("Площадка требует проверку в браузере; снимок сохранён")
             batch = page.evaluate(SCRIPT, {"source": source, "stop": stop})
+            seen_cards.update(x["externalId"] for x in batch)
             if source == "onetwotrip":
                 confirmed = []
                 for item in batch:
-                    if item["total"] > 40000 or (item.get("km") is not None and item["km"] > 12):
+                    if item["total"] > 40000:
                         continue
                     if item["externalId"] in result:
                         confirmed.append(result[item["externalId"]])
@@ -49,30 +68,56 @@ def crawl(source, stop, max_pages=20, log=print):
             result.update({x["externalId"]: x for x in batch})
             unchanged = unchanged + 1 if previous == len(result) else 0
             log(f"{source}: {len(result)} предложений")
-            if unchanged >= 3:
+            if unchanged >= 5:
+                # A stable bottom is recorded as partial unless the source
+                # explicitly confirms the end. Never claim all offers merely
+                # because repeated scrolls produced no new priced cards.
+                reason = "stalled"
                 break
             if source == "onetwotrip":
                 more = page.get_by_role("button", name="Показать 15 отелей", exact=True)
                 if more.count():
                     more.click()
                 else:
+                    reason = "end"
+                    complete = True
                     break
             elif source == "tvil":
                 more = page.get_by_role("button", name="Показать еще 20 вариантов")
                 if more.count():
                     more.click()
                 else:
+                    reason = "end"
+                    complete = True
                     break
-            elif source == "sutochno":
+            elif source in {"sutochno", "yandex"}:
                 more = page.get_by_text("Далее", exact=True)
-                if more.count():
+                if more.count() and more.first.is_enabled():
                     more.first.click()
-                else:
+                elif source == "sutochno" or more.count():
+                    reason = "end"
+                    complete = True
                     break
+                else:
+                    page.mouse.move(600, 600)
+                    page.mouse.wheel(0, 7000)
             else:
+                # Aim the wheel at the list, away from the map. The old wheel
+                # could zoom the map while leaving the hotel list unchanged.
+                page.mouse.move(400, 600)
                 page.mouse.wheel(0, 7000)
+            # Wait for fresh priced objects instead of checking once immediately
+            # after the scroll. Slow price loading must not consume page budget.
+            previous_ids = list(seen_cards)
+            try:
+                page.wait_for_function(f"arg => ({SCRIPT})(arg.input).some(x => !arg.ids.includes(x.externalId))",
+                                      arg={"input": {"source": source, "stop": stop}, "ids": previous_ids}, timeout=15000)
+            except Exception:
+                pass
         context.close()
         browser.close()
         if not result:
             raise ValueError("Нет подтверждённых цен на выбранные даты; возможна проверка доступа или изменение разметки")
+        if coverage is not None:
+            coverage.update(pages=step + 1, priced=len(seen_cards), saved=len(result), reason=reason, complete=complete)
         return list(result.values())

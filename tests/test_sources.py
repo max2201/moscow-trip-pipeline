@@ -111,7 +111,9 @@ class SourcesTest(unittest.TestCase):
         html = '''<input name="in" value="14.10.2026"><input name="out" value="22.10.2026">
         <article class="item-inner"><div data-hotel_id="123"></div><div class="item-name">
         <a href="/main/cities/moskva/hotel.html"><span itemprop="name">Hotel</span></a></div>
-        <div data-price-value="40000" data-price-currency="RUB">5000 per night</div></article>'''
+        <div class="meal-type"><span data-price-value="1550" data-price-currency="RUB">Завтрак</span></div>
+        <div class="room-old-price"><span data-price-value="41000" data-price-currency="RUB">Старая цена</span></div>
+        <div class="room-price"><span data-price-value="40000" data-price-currency="RUB">40000 за 8 ночей</span></div></article>'''
         self.assertEqual(parse_page(html, STOP)[0]["total"], 40000)
         with self.assertRaises(ValueError):
             parse_page(html.replace("22.10.2026", "23.10.2026"), STOP)

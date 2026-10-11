@@ -3,3 +3,4 @@ __pycache__/
 cache/trip_data.json
 .DS_Store
 work/
+content/browser-full-*.json

@@ -35,16 +35,17 @@ def cmd_prices(args):
         log(f"{s['id']} {s['title']} {s['ci']}–{s['co']}: собираю выдачу")
         cfg = load_settings()
         center = (s["alat"], s["alng"]) if s.get("alat") else None
+        coverage = {}
         try:
-            items = ostrovok.crawl_list(CITY_IDS[s["city"]], ci, co, log=log, center=center, max_km=cfg.get("maxKm"), max_night=cfg["limits"].get(s["city"]))
-            return s, ci, co, items
+            items = ostrovok.crawl_list(CITY_IDS[s["city"]], ci, co, log=log, center=center, max_km=cfg.get("maxKm"), max_night=cfg["limits"].get(s["city"]), coverage=coverage)
+            return s, ci, co, items, coverage
         except Exception as error:
             set_status("ostrovok", s, "error", type(error).__name__)
             log(s["id"], "Островок: снимок сохранён", type(error).__name__)
-            return s, ci, co, None
+            return s, ci, co, None, coverage
 
     with ThreadPoolExecutor(3) as ex:
-        for s, ci, co, items in ex.map(work, todo):
+        for s, ci, co, items, coverage in ex.map(work, todo):
             if items is None:
                 continue
             priced = sum(1 for h in items if h.get("night"))
@@ -55,7 +56,7 @@ def cmd_prices(args):
             stamp = now()
             items = [{**item, "ci": s["ci"], "co": s["co"], "adults": 2, "collectedAt": stamp} for item in items]
             write_json(list_path(s["id"]), items)
-            set_status("ostrovok", s, "ok", count=len(items), collected_at=stamp)
+            set_status("ostrovok", s, "ok", count=len(items), collected_at=stamp, coverage=coverage)
             for it in items:  # последняя выдача нужна только для отелей из плана и сохранённых
                 if it["id"] in keep: meta[str(it["id"])] = {**it, "_ci": ci, "_co": co}
             log(f"{s['id']}: {len(items)} отелей, {priced} с ценой")
@@ -91,7 +92,8 @@ def cmd_sources(args):
                 set_status(source, s, "pending", "Автоматический сбор ещё не подключён; доступен импорт подтверждённых предложений")
                 continue
             try:
-                items = hotels101.crawl(s, max_pages=args.max_pages, log=log) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log)
+                coverage = {}
+                items = hotels101.crawl(s, max_pages=args.max_pages, log=log, coverage=coverage) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage)
                 # Validate cards individually. A malformed distance/rating in one
                 # card must not discard the other confirmed offers. Manual
                 # imports and the snapshot shrink/empty guards remain strict.
@@ -103,7 +105,7 @@ def cmd_sources(args):
                     except ValueError as error:
                         log(source, "Карточка пропущена:", str(error))
                 items = confirmed
-                save_snapshot(source, s, items)
+                save_snapshot(source, s, items, complete=coverage.get("complete", False), coverage=coverage)
                 log(source, len(items), "offers saved")
             except Exception as error:
                 # No request URLs, cookies, browser state or credentials in logs/cache.
@@ -119,7 +121,7 @@ def cmd_import(args):
     matches = [s for s in stops() if s["id"] == data.get("stop")]
     if len(matches) != 1 or data.get("source") != args.source[0]:
         raise ValueError("Import source/stop mismatch")
-    items = save_snapshot(args.source[0], matches[0], data["items"], mode="manual", complete=data.get("complete", False), merge=not data.get("replace", False))
+    items = save_snapshot(args.source[0], matches[0], data["items"], mode="manual", complete=data.get("complete", False), merge=not data.get("replace", False), coverage=data.get("coverage"))
     log("Imported", len(items), "offers")
 
 
@@ -166,7 +168,7 @@ def main():
     p.add_argument("--refresh", action="store_true", help="перекачать отзывы и для уже скачанных отелей")
     p.add_argument("--source", nargs="+", choices=list(SOURCES), help="Additional sources to collect/import")
     p.add_argument("--input", help="JSON file with source, stop and dated items")
-    p.add_argument("--max-pages", type=int, default=20, help="Bounded number of pages/scrolls per source")
+    p.add_argument("--max-pages", type=int, default=1000, help="Safety limit; hitting it records partial coverage")
     a = p.parse_args()
     if a.command in ("prices", "all"): cmd_prices(a)
     if a.command in ("sources", "all"): cmd_sources(a)

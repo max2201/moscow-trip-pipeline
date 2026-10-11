@@ -21,7 +21,8 @@ def parse_page(html, stop):
         identity = card.select_one("[data-hotel_id]")
         name = card.select_one('.item-name [itemprop="name"]')
         link = card.select_one('.item-name a[href]')
-        price = card.select_one('[data-price-value][data-price-currency="RUB"]')
+        # Breakfast and the crossed-out rate also have data-price-value.
+        price = card.select_one('.room-price [data-price-value][data-price-currency="RUB"]')
         if not all([identity, name, link, price]):
             continue
         value = float(price["data-price-value"])
@@ -49,21 +50,39 @@ def parse_page(html, stop):
     return out
 
 
-def crawl(stop, max_pages=30, log=print):
-    session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36"})
+def crawl(stop, max_pages=1000, log=print, coverage=None):
+    # The server HTML repeats page one. The visible pager updates prices and
+    # preserves dates in the browser; follow it instead of guessing HTTP pages.
+    from playwright.sync_api import sync_playwright
     out = {}
-    for page in range(1, max_pages + 1):
-        response = session.get(search_url("101hotels", stop), params={"page": page}, timeout=45)
-        response.raise_for_status()
-        response.encoding = "utf-8"
-        batch = parse_page(response.text, stop)
-        if not batch:
-            raise ValueError("101Hotels вернул пустую выдачу")
-        previous = len(out)
-        out.update({x["externalId"]: x for x in batch})
-        if len(out) == previous:
-            break
-        log(f"101Hotels: страница {page}, {len(out)} предложений")
-        time.sleep(.5)
+    complete, reason = False, "limit"
+    with sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        context = browser.new_context(locale="ru-RU")
+        context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
+        page = context.new_page()
+        page.goto(search_url("101hotels", stop), wait_until="domcontentloaded", timeout=60000)
+        page.locator('input[name="price-to"]').fill(str(40000 // stop["nights"]))
+        page.locator('input[name="price-to"]').press("Enter")
+        page.wait_for_url("**price=**", timeout=30000)
+        for step in range(max_pages):
+            page.get_by_text(f'Цена за {stop["nights"]} ночей', exact=True).first.wait_for(state="visible", timeout=60000)
+            batch = parse_page(page.content(), stop)
+            if not batch:
+                raise ValueError("101Hotels вернул пустую выдачу; прошлый снимок сохранён")
+            previous = len(out)
+            out.update({x["externalId"]: x for x in batch})
+            log(f"101Hotels: страница {step + 1}, {len(out)} предложений")
+            if len(out) == previous:
+                reason = "stalled"
+                break
+            next_page = page.locator(".page-link.next")
+            if not next_page.count():
+                complete, reason = True, "end"
+                break
+            next_page.click()
+        context.close()
+        browser.close()
+    if coverage is not None:
+        coverage.update(pages=step + 1, priced=len(out), saved=len(out), complete=complete, reason=reason)
     return list(out.values())
