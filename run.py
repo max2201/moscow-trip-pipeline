@@ -10,7 +10,7 @@ import argparse, datetime, os, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from tripdata.paths import CITY_IDS, CONTENT, HOTEL_META, TRIP_DATA, SITE_DATA, read_json, write_json, list_path, load_settings, load_hotels, save_hotels
 from tripdata import ostrovok
-from tripdata.sources import SOURCES, save_snapshot, set_status, now
+from tripdata.sources import SOURCES, save_snapshot, set_status, normalize, now
 from tripdata import hotels101, browser_sources
 from tripdata.build import build_trip, notes_raw, merge_notes, export_site
 from tripdata.compact import compact
@@ -92,6 +92,17 @@ def cmd_sources(args):
                 continue
             try:
                 items = hotels101.crawl(s, max_pages=args.max_pages, log=log) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log)
+                # Validate cards individually. A malformed distance/rating in one
+                # card must not discard the other confirmed offers. Manual
+                # imports and the snapshot shrink/empty guards remain strict.
+                confirmed = []
+                for item in items:
+                    try:
+                        normalize(source, item, s, now())
+                        confirmed.append(item)
+                    except ValueError as error:
+                        log(source, "Карточка пропущена:", str(error))
+                items = confirmed
                 save_snapshot(source, s, items)
                 log(source, len(items), "offers saved")
             except Exception as error:
