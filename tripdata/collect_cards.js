@@ -1,5 +1,7 @@
 // Only rendered offer cards. Used by the scheduled browser collector.
-({source, stop}) => {
+({source, stop, skipIds = []}) => {
+  const skip = new Set(skipIds);
+  const skipped = a => skip.has(new URL(a.href, location.href).pathname.replace(/\/$/, "").split("/").pop());
   const clean = s => (s || '').replace(/[\u200b-\u200f\u2060]/g, '').replace(/\s+/g, ' ').trim();
   const number = s => Number((s || '').replace(/[^\d.,]/g, '').replace(',', '.'));
   const text = e => clean(e?.innerText);
@@ -30,6 +32,7 @@
   }
   if (source === 'ozon') {
     for (const a of document.querySelectorAll('a[href*="/hotels/product/"]')) {
+      if (skipped(a)) continue;
       const name = text(a);
       if (!name || /Выбрать|Авторизуйтесь|Смотреть/.test(name)) continue;
       let card = a.parentElement;
@@ -46,7 +49,7 @@
   } else if (source === 'yandex') {
     for (const heading of document.querySelectorAll('h3[itemprop="name"]')) {
       const a = heading.querySelector('a[href]');
-      if (!a) continue;
+      if (!a || skipped(a)) continue;
       let card = heading.parentElement;
       for (let i = 0; card && i < 8; i++, card = card.parentElement) {
         const price = card.querySelector('[data-qa="price"]');
@@ -60,6 +63,7 @@
     }
   } else if (source === 'sutochno') {
     for (const a of document.querySelectorAll('a.card-content')) {
+      if (skipped(a)) continue;
       const card = a.closest('.card');
       if (!card) continue;
       const t = text(card);
@@ -72,6 +76,7 @@
     }
   } else if (source === 'onetwotrip') {
     for (const card of document.querySelectorAll('[data-hotel-id]')) {
+      if (skip.has(card.getAttribute("data-hotel-id"))) continue;
       const t = text(card), name = text(card.querySelector('[title]'));
       if (Number(t.match(/За (\d+) ночей/)?.[1]) !== stop.nights) continue;
       const total = t.match(/([\d ]+)\s*₽/), score = t.match(/^([\d.,]+) /);
@@ -79,6 +84,7 @@
     }
   } else if (source === 'tutu') {
     for (const a of document.querySelectorAll('a[href*="/h_"]')) {
+      if (skipped(a)) continue;
       const name = text(a);
       if (!name) continue;
       let card = a;
@@ -92,6 +98,7 @@
     }
   } else if (source === 'tvil') {
     for (const a of document.querySelectorAll('a[href*="from=search"]')) {
+      if (skipped(a)) continue;
       const name = text(a);
       if (!name || /Фотограф|Смотреть/.test(name)) continue;
       let card = a.parentElement;

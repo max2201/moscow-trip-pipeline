@@ -93,7 +93,17 @@ def cmd_sources(args):
                 continue
             try:
                 coverage = {}
-                items = hotels101.crawl(s, max_pages=args.max_pages, log=log, coverage=coverage) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage)
+                def checkpoint(items, progress):
+                    valid = []
+                    for item in items:
+                        try:
+                            normalize(source, item, s, now())
+                            valid.append(item)
+                        except ValueError:
+                            continue
+                    if valid:
+                        save_snapshot(source, s, valid, merge=True, complete=False, coverage=progress)
+                items = hotels101.crawl(s, max_pages=args.max_pages, log=log, coverage=coverage) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage, checkpoint=checkpoint)
                 # Validate cards individually. A malformed distance/rating in one
                 # card must not discard the other confirmed offers. Manual
                 # imports and the snapshot shrink/empty guards remain strict.
@@ -105,7 +115,9 @@ def cmd_sources(args):
                     except ValueError as error:
                         log(source, "Карточка пропущена:", str(error))
                 items = confirmed
-                save_snapshot(source, s, items, complete=coverage.get("complete", False), coverage=coverage)
+                save_snapshot(source, s, items, complete=coverage.get("complete", False), merge=not coverage.get("complete", False), coverage=coverage)
+                if coverage.get("message"):
+                    set_status(source, s, "error", coverage["message"], count=len(items))
                 log(source, len(items), "offers saved")
             except Exception as error:
                 # No request URLs, cookies, browser state or credentials in logs/cache.
