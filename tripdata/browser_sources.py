@@ -53,7 +53,9 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None):
                     if item["externalId"] in result:
                         confirmed.append(result[item["externalId"]])
                         continue
-                    button = page.locator(f'[data-hotel-id="{item["externalId"]}"]').get_by_role("button", name="Выбрать", exact=True)
+                    # Off-screen cards omit the Select button. The hotel title
+                    # remains available and opens the same verified popup.
+                    button = page.locator(f'[data-hotel-id="{item["externalId"]}"]').get_by_text(item["name"], exact=True)
                     with page.expect_popup() as popup_info:
                         button.click()
                     popup = popup_info.value
@@ -79,9 +81,15 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None):
                 if more.count():
                     more.click()
                 else:
-                    reason = "end"
-                    complete = True
-                    break
+                    # With an active price range the source shows numbered
+                    # pages instead of the load-more button.
+                    next_page = page.locator(".tcbxi button.eU-w6").last
+                    if next_page.count() and next_page.is_enabled():
+                        next_page.click()
+                    else:
+                        complete = bool(next_page.count())
+                        reason = "end" if complete else "stalled"
+                        break
             elif source == "tvil":
                 more = page.get_by_role("button", name="Показать еще 20 вариантов")
                 if more.count():

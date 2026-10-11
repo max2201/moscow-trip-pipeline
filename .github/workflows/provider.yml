@@ -1,0 +1,36 @@
+name: Collect one provider
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Booking provider
+        type: choice
+        options: [ozon, yandex, sutochno, tvil, 101hotels, tutu, onetwotrip]
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: provider-${{ inputs.source }}
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE: ${{ inputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python run.py sources --source "$SOURCE" --stop m1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: provider-${{ inputs.source }}
+          path: |
+            cache/sources/${{ inputs.source }}/m1.json.gz
+            cache/source_status.json
+          retention-days: 7
