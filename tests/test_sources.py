@@ -1,6 +1,7 @@
 import copy
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,21 @@ def offer(**changes):
             "score": 4.5, "scoreMax": 5, "cnt": 100, **changes}
 
 class SourcesTest(unittest.TestCase):
+    def test_automatic_bad_card_does_not_discard_valid_offers(self):
+        from run import cmd_sources
+        with tempfile.TemporaryDirectory() as directory, patch.object(sources, "CACHE", Path(directory)), \
+                patch("run.stops", return_value=[STOP]), patch("run.log"), \
+                patch("run.browser_sources.crawl", return_value=[offer(), offer(externalId="bad", km=1200)]):
+            args = Namespace(source=["yandex"], stop=None, max_pages=1)
+            cmd_sources(args)
+            path = sources.snapshot_path("m1", "yandex")
+            self.assertEqual(len(read_json(path)["items"]), 1)
+            original = path.read_bytes()
+            with patch("run.browser_sources.crawl", return_value=[offer(km=1200)]):
+                cmd_sources(args)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(sources.source_statuses([STOP])["m1"][2]["state"], "error")
+
     def test_total_boundary_uses_whole_stay_without_rounding_down(self):
         for price, allowed in ((39999, True), (40000, True), (40000.01, False), (40000.001, False), (0, False)):
             normalized = sources.normalize("yandex", offer(total=price), STOP, "stamp") if price else offer(total=0)
