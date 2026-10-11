@@ -1,6 +1,8 @@
 """Сборка данных сайтов: отели по городам, цены по остановкам, оценки, плюсы и минусы, «Коротко об отеле»."""
 import json, re, os, math, statistics as st
 from .analyze import analyze
+from .compact import compact
+from .sources import load_list, source_statuses
 from .paths import CONTENT, HOTEL_META, TRIP_DATA, SITE_DATA, read_json, write_json, list_path, load_settings, load_hotels
 
 CENTER={"msk":(55.75393,37.62079)}  # Красная площадь
@@ -24,7 +26,7 @@ CONTXT={"roach":"Тараканы, клопы","damp":"Сырость, плес�
 WEIGHT={"roach":3,"damp":2,"smell":2,"dirty":1.5,"noise":1,"old":1,"ac":1,"bath":1,"small":0.8,"smoke":1,"rude":1.2,"wifi":0.6,"ants":1.2}
 AMR=[("pool",r"бассейн"),("gym",r"Фитнес"),("food",r"Ресторан|Restaurant|Кафе|cafe|Снэк-бар"),("bar",r"\bБар\b|Лобби-бар|\bbar\b"),("laundry",r"Прачечн|Услуги прачечной|Стиральный порошок"),("lift",r"^Лифт$"),("parking",r"парковка|Парковка"),("transfer",r"Трансфер от аэропорта"),("kitchen",r"Общая кухня"),("spa",r"Спа|Массаж|Сауна"),("work",r"Коворкинг|Бизнес-центр")]
 DORM=re.compile(r"общ\S* (номер|спальн|комнат)|dorm|койк|кровать в |bunk|капсул|capsule|двухъярусн|смешанн|женск\S* (номер|спальн)|мужск\S* (номер|спальн)",re.I)
-SHARED=re.compile(r"общ\S* ванн|shared bath|shared toilet|общ\S* санузел|общ\S* туалет",re.I)
+SHARED=re.compile(r"общ\S* ванн|shared bath|shared toilet|общ\S* санузел|общ\S* туалет|общ\S* кухн\S* и туалет",re.I)
 NOWIN=re.compile(r"без окна|windowless|no window",re.I)
 def pct(x): return f"{round(x*100):d}%" if x>=0.01 else "<1%"
 def plural(n,a,b,c):
@@ -37,16 +39,29 @@ def room_flags(room,name):
     room=room or ""
     private=bool(re.search(r"частн|private|отдельн",room,re.I))
     return bool(DORM.search(room)) and not private, bool(SHARED.search(room)), bool(NOWIN.search(room))
+
+def eligible_offer(item, stop, settings):
+    total = item.get("total")
+    if total is None and item.get("night"):
+        total = item["night"] * stop["nights"]
+    if not isinstance(total, (int, float)) or not math.isfinite(total) or total <= 0:
+        return False
+    cap = settings.get("maxTotal") or settings["limits"].get(stop["city"], 5000) * stop["nights"]
+    if total > cap:
+        return False
+    lat, lng = fnum(item.get("lat")), fnum(item.get("lng"))
+    distance = hav(lat, lng, stop["alat"], stop["alng"]) if lat is not None and lng is not None and stop.get("alat") else item.get("km")
+    return distance is None or not settings.get("maxKm") or distance <= settings["maxKm"]
 def build_trip(log=print):
   global G
   G=read_json(CONTENT/"guides.json"); SD=read_json(CONTENT/"stops.json"); STOPS=SD["stops"]
   SAVED={k:set(v) for k,v in read_json(CONTENT/"saved.json",{}).items()}
   META={int(k):v for k,v in read_json(HOTEL_META,{}).items()}
-  LIMIT=load_settings()["limits"]
+  LIMIT=load_settings()["limits"]; MAX_TOTAL=load_settings().get("maxTotal")
   OUT={"cities":{},"stops":[],"guides":G,"tripwide":SD["tripwide"]}
   for city in sorted({s["city"] for s in STOPS}):
       stops=[s for s in STOPS if s["city"]==city]
-      lists={s["id"]:{h["id"]:h for h in read_json(list_path(s["id"]),[])} for s in stops}
+      lists={s["id"]:{h["id"]:h for h in load_list(s)} for s in stops}
       sv=SAVED.get(city,set())
       # отели из плана и сохранённые, которых нет в свежей выдаче: берём последний известный снимок
       # (цену — только если он снят на те же даты, иначе без цены)
@@ -64,19 +79,23 @@ def build_trip(log=print):
       ids=set()
       for s in stops:
           for hid,h in lists[s["id"]].items():
-              if h.get("night") and h["night"]<=LIMIT.get(city,5000): ids.add(hid)
+              if eligible_offer(h, s, load_settings()): ids.add(hid)
       ids|=special
       HOT=load_hotels(city)
-      ids=[i for i in ids if i in HOT and i in meta]
+      ids=[i for i in ids if i in meta]
+      for hid in ids:
+          if hid not in HOT:
+              m=meta[hid]
+              HOT[hid]=compact(hid,{"rev":[], "cr":{"ratingAll":m.get("score"),"showCommentNum":m.get("cnt") or 0},"total":m.get("cnt") or 0,"fac":{"yes":m.get("fac") or []}})
       AN={}
       for hid in ids:
           rec=HOT[hid]; d={"cr":rec["cr"],"fac":rec["fac"],"total":rec["total"]}; AN[hid]=(rec["a"],d,meta[hid])
       def rate(a,k,src): return a[src][k]/max(1,(a["n"] if src=="c" else a["npos"]))
-      keysC=next(iter(AN.values()))[0]["c"].keys(); keysP=next(iter(AN.values()))[0]["p"].keys()
+      empty=compact(0,{"rev":[]})["a"]; keysC=empty["c"].keys(); keysP=empty["p"].keys()
       big=[a for a,_,_ in AN.values() if a["n"]>=30]
-      MED_C={k:st.median([rate(a,k,"c") for a in big]) for k in keysC}
-      MED_P={k:st.median([rate(a,k,"p") for a in big]) for k in keysP}
-      MEDS=st.median([(d.get("cr") or {}).get("ratingAll") for a,d,_ in AN.values() if a["n"]>=30 and (d.get("cr") or {}).get("ratingAll")])
+      MED_C={k:(st.median([rate(a,k,"c") for a in big]) if big else 0) for k in keysC}
+      MED_P={k:(st.median([rate(a,k,"p") for a in big]) if big else 0) for k in keysP}
+      scores=[(d.get("cr") or {}).get("ratingAll") for a,d,_ in AN.values() if a["n"]>=30 and (d.get("cr") or {}).get("ratingAll")]; MEDS=st.median(scores) if scores else 8
       H=[]
       for hid,(a,d,m) in AN.items():
           n=a["n"]; c=a["c"]; pp=a["p"]; cr=d.get("cr") or {}
@@ -107,7 +126,7 @@ def build_trip(log=print):
               v=cr.get(key)
               if v and v<8.0 and len(cons)<4: cons.append(f"Низкая оценка за {lab}: {str(v).replace('.',',')}")
           if 0<n<30: cons.append(f"Мало отзывов ({n}) — статистика неточная")
-          if n==0: cons.append("Отзывов пока нет")
+          if n==0: cons.append("Тексты отзывов ещё не разобраны" if (d.get("total") or m.get("cnt")) else "Отзывов пока нет")
           if not cons: cons.append("Повторяющихся жалоб нет")
           yes=d["fac"]["yes"]; am=[k for k,rx in AMR if any(re.search(rx,f,re.I) for f in yes)]
           comp=None
@@ -125,7 +144,10 @@ def build_trip(log=print):
             ng=round(a["neg"]/max(1,n)*100,1) if n else None,ns=round(c["noise"]/max(1,n)*100,1) if n else None,
             ro=c["roach"],ror=a["crec"]["roach"],at=c["ants"],sm=c["smell"],smr=a["crec"]["smell"],dm=c["damp"],dmr=a["crec"]["damp"],ins=c["insect"],insr=a["crec"]["insect"],
             am=am,amn=len(yes),yr=d["fac"].get("yr",""),ry=d["fac"].get("rn",""),pr=pros,co=cons[:5],cp=comp,sv=int(hid in sv),
-            o=m.get("oid") or "",mt=m.get("metro") or [],ad=m.get("addr") or ""))
+            o=m.get("oid") or "",mt=m.get("metro") or [],ad=m.get("addr") or "",
+            source=m.get("source","ostrovok"),sourceScore=m.get("sourceScore",score),scoreMax=m.get("scoreMax",10),
+            sourceKm=m.get("km") if m.get("source")!="ostrovok" else None,
+            url=m.get("url"),reviewSource=m.get("source","ostrovok")))
       # у части жилья (чаще квартир) Островок не указывает район: берём район ближайших соседей в радиусе 700 м
       rest=G[city]["districts"][-1]["t"]
       known=[h for h in H if h["z"]!=rest and h["la"]]
@@ -142,17 +164,19 @@ def build_trip(log=print):
           for hid in hidset:
               m=L.get(hid)
               if not m: continue
+              if not eligible_offer(m, s, load_settings()): continue
               night=m.get("night"); 
               if not night and hid not in sp_stop: continue
               if night and night>LIMIT.get(city,5000) and hid not in sp_stop: continue
               total=m.get("total") or (night*s["nights"] if night else None)
+              if MAX_TOTAL is not None and total and total>MAX_TOTAL: continue
               dorm,shared,nowin=room_flags(m.get("room"),m.get("name"))
-              free=any("Бесплатная отмена" in (t or "") for t in m.get("tags") or [])
+              free=m.get("free") if m.get("source")!="ostrovok" else any("Бесплатная отмена" in (t or "") for t in m.get("tags") or [])
               # 8-й элемент — отметки площадки бронирования (у Островка пока нет), 0
-              P[hid]=[round(total/ s["nights"]) if total else night,total,int(free),m.get("room") or "",int(dorm),int(shared),int(nowin),m.get("tc") or 0]
+              P[hid]=[round(total/ s["nights"]) if total else night,total,(int(free) if free is not None else None),m.get("room") or "",int(dorm),int(shared),int(nowin),m.get("tc") or 0,{"source":m.get("source","ostrovok"),"url":m.get("url"),"collectedAt":m.get("collectedAt"),"distanceBasis":"source" if m.get("lat") is None else "coordinates"}]
           an=meta.get(s["anchor"]) or {}
           # точка отсчёта расстояний: отель из плана или просто место (у Москвы — Красная площадь, alat/alng в stops.json)
-          so=dict(s); so["limit"]=LIMIT.get(city,5000); so["prices"]=P; so["alat"]=fnum(an.get("lat")) or s.get("alat"); so["alng"]=fnum(an.get("lng")) or s.get("alng")
+          so=dict(s); so["limit"]=LIMIT.get(city,5000); so["totalLimit"]=MAX_TOTAL; so["prices"]=P; so["alat"]=fnum(an.get("lat")) or s.get("alat"); so["alng"]=fnum(an.get("lng")) or s.get("alng")
           OUT["stops"].append(so)
       log(city,"hotels",len(H),"reviews",sum(h["an"] for h in H),"median",MEDS, {s["id"]:len([1 for p in OUT["stops"] if p["id"]==s["id"] for _ in p["prices"]]) for s in stops})
   OUT["stops"].sort(key=lambda s:s["ci"])
@@ -193,8 +217,8 @@ def merge_notes(D, RAW):
     for city,o in D["cities"].items():
         R=RAW[city]; H=o["hotels"]
         big=[R[str(h["id"])] for h in H if R[str(h["id"])][0]>=30]
-        MF={k:st.median([b[1][k]/b[0] for b in big]) for k,_,_ in FEAT}
-        MR={k:st.median([b[2][k]/b[0] for b in big]) for k,_,_,_ in FLAG}
+        MF={k:(st.median([b[1][k]/b[0] for b in big]) if big else 0) for k,_,_ in FEAT}
+        MR={k:(st.median([b[2][k]/b[0] for b in big]) if big else 0) for k,_,_,_ in FLAG}
         for h in H:
             n,fc,rc=R[str(h["id"])]
             fx=[]
@@ -230,7 +254,7 @@ def notes_raw(D):
     RAW = {}
     for c in D["cities"]:
         HOT = load_hotels(c)
-        RAW[c] = {str(h["id"]): HOT[h["id"]]["nt"] for h in D["cities"][c]["hotels"]}
+        RAW[c] = {str(h["id"]): (HOT.get(h["id"]) or compact(h["id"],{"rev":[]}))["nt"] for h in D["cities"][c]["hotels"]}
     return RAW
 
 
@@ -246,7 +270,7 @@ def export_site(D, out=SITE_DATA, built_at=""):
         write_json(out / "cities" / f"{c}.json", o["hotels"])
         cities[c] = {"meds": o["meds"], "count": len(o["hotels"])}
     idx = {"stops": stops, "guides": D["guides"], "tripwide": D["tripwide"], "cities": cities,
-           "saved": read_json(CONTENT / "saved.json", {}), "builtAt": built_at,
+           "saved": read_json(CONTENT / "saved.json", {}), "builtAt": built_at, "sources": source_statuses(D["stops"]),
            # координаты мест для карт на вкладках «Что посмотреть», «Поездки», «События»: город → вид → название → [lat, lng]
            "places": read_json(CONTENT / "places.json", {}),
            "reviews": sum(sum(h["an"] for h in o["hotels"]) for o in D["cities"].values())}

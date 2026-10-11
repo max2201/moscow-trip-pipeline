@@ -1,0 +1,12 @@
+{
+  "source": "ozon",
+  "stop": "m1",
+  "items": [{
+    "externalId": "otel-a-kosterev-615543785",
+    "name": "Отель А.Костерев",
+    "url": "https://www.ozon.ru/travel/hotels/product/otel-a-kosterev-615543785/?Dlts=2&checkIn=2026-10-14&checkOut=2026-10-22",
+    "ci": "2026-10-14", "co": "2026-10-22", "adults": 2,
+    "total": 30520, "currency": "RUB", "score": 4.8, "scoreMax": 5,
+    "cnt": 526, "cat": "Отель", "km": 0.7, "free": null
+  }]
+}
