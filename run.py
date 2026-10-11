@@ -10,7 +10,8 @@ import argparse, datetime, os, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from tripdata.paths import CITY_IDS, CONTENT, HOTEL_META, TRIP_DATA, SITE_DATA, read_json, write_json, list_path, load_settings, load_hotels, save_hotels
 from tripdata import ostrovok
-from tripdata.sources import SOURCES, save_snapshot, set_status, normalize, now
+from tripdata.sources import SOURCES, save_snapshot, set_status, normalize, now, load_list
+from tripdata import reviews101, reviews_sutochno
 from tripdata import hotels101, browser_sources
 from tripdata.build import build_trip, notes_raw, merge_notes, export_site
 from tripdata.compact import compact
@@ -139,15 +140,16 @@ def cmd_import(args):
 
 def cmd_reviews(args):
     """Скачивает отзывы новых отелей, анализирует и сохраняет только результат анализа."""
+    selected = args.source or ["ostrovok", "101hotels", "sutochno"]
     pages = load_settings().get("maxReviewPages", 20)
-    for city, ids in needed().items():
+    for city, ids in (needed() if "ostrovok" in selected else {}).items():
         hot = load_hotels(city)
-        todo = sorted(ids) if args.refresh else sorted(i for i in ids if i not in hot)
-        log(f"{city}: отзывы нужно скачать для {len(todo)} отелей")
         info = {}
         for st in stops():
             if st["city"] != city: continue
             for h in read_json(list_path(st["id"]), []) or []: info.setdefault(h["id"], h)
+        todo = sorted(ids) if args.refresh else sorted(i for i in ids if i not in hot or (hot[i]["a"]["n"] == 0 and (info.get(i, {}).get("cnt") or 0) > 0))
+        log(f"{city}: отзывы нужно скачать для {len(todo)} отелей")
         todo = [i for i in todo if i in info and info[i].get("oid")]
         def work(hid):
             d = ostrovok.fetch_reviews(info[hid]["oid"], max_pages=pages, fac=info[hid].get("fac"))
@@ -156,10 +158,32 @@ def cmd_reviews(args):
         with ThreadPoolExecutor(args.workers) as ex:
             for hid, rec in ex.map(work, todo):
                 if rec is None: continue
-                hot[hid] = rec; done += 1
+                if rec["a"]["n"] >= hot.get(hid, {}).get("a", {}).get("n", 0): hot[hid] = rec
+                done += 1
                 if done % 100 == 0: save_hotels(city, hot); log(f"  {done}/{len(todo)}")
         save_hotels(city, hot)
         log(f"{city}: готово {done}/{len(todo)}")
+    for source, fetch in (("101hotels", reviews101.fetch_reviews), ("sutochno", reviews_sutochno.fetch_reviews)):
+        if source not in selected:
+            continue
+        for city in sorted({s["city"] for s in stops()}):
+            hot = load_hotels(city)
+            offers = {h["id"]: h for s in stops() if s["city"] == city for h in load_list(s)
+                      if h.get("source") == source and h.get("total", 0) <= (load_settings().get("maxTotal") or 40000) and (args.refresh or not hot.get(h["id"], {}).get("a", {}).get("n"))}
+            log(source, "собираю видимые тексты", len(offers), "объектов")
+            def collect(item):
+                data = fetch(item)
+                return item["id"], compact(item["id"], data) if data else None
+            done = read = 0
+            with ThreadPoolExecutor(min(args.workers, 4)) as executor:
+                for hid, rec in executor.map(collect, offers.values()):
+                    if rec and rec["a"]["n"] >= hot.get(hid, {}).get("a", {}).get("n", 0):
+                        hot[hid] = rec; read += rec["a"]["n"]
+                    done += 1
+                    if done % 25 == 0:
+                        save_hotels(city, hot); log(source, done, "/", len(offers), "текстов", read)
+            save_hotels(city, hot)
+            log(source, "разобрано текстов", read)
 
 
 def cmd_build(args):

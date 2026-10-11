@@ -7,4 +7,5 @@ def compact(hid, d):
     n, fc, rc = count_notes(d)
     fac = d.get("fac") or {}
     return {"id": hid, "a": analyze(d), "cr": d.get("cr"), "total": d.get("total") or 0,
-            "fac": {"yes": fac.get("yes", []), "yr": fac.get("yr", ""), "rn": fac.get("rn", "")}, "nt": [n, fc, rc]}
+            "fac": {"yes": fac.get("yes", []), "yr": fac.get("yr", ""), "rn": fac.get("rn", "")}, "nt": [n, fc, rc],
+            **({"reviewCoverage": d["reviewCoverage"]} if d.get("reviewCoverage") else {})}

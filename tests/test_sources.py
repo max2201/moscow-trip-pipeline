@@ -113,7 +113,8 @@ class SourcesTest(unittest.TestCase):
             data = build_trip(log=lambda *a: None)
         hotel = data["cities"]["msk"]["hotels"][0]
         self.assertEqual(hotel["an"], 0)
-        self.assertIsNone(hotel["cp"])
+        self.assertIsNotNone(hotel["cp"])
+        self.assertEqual(hotel["rating"]["basis"], "platform")
         self.assertEqual(hotel["sc"], 9)
         self.assertEqual(hotel["rv"], 100)
         self.assertIsNone(data["stops"][0]["prices"][item["id"]][2])

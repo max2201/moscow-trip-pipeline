@@ -45,9 +45,11 @@ def load_hotels(city):
 def save_hotels(city, recs):
     path = HOTELS / f"{city}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    temporary = path.with_suffix(".jsonl.tmp")
+    with open(temporary, "w", encoding="utf-8") as f:
         for hid in sorted(recs):
             f.write(json.dumps(recs[hid], ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+    os.replace(temporary, path)
 
 
 def list_path(stop_id):

@@ -111,7 +111,7 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                 stage = "Переход к следующей странице"
                 if source == "onetwotrip":
                     more = page.get_by_role("button", name="Показать 15 отелей", exact=True)
-                    if more.count():
+                    if more.count() and more.is_visible() and more.is_enabled():
                         more.click()
                     else:
                         # With an active price range the source shows numbered

@@ -4,6 +4,7 @@ from .analyze import analyze
 from .compact import compact
 from .sources import load_list, source_statuses
 from .housing import housing_features
+from .rating import rating_components
 from .paths import CONTENT, HOTEL_META, TRIP_DATA, SITE_DATA, read_json, write_json, list_path, load_settings, load_hotels
 
 CENTER={"msk":(55.75393,37.62079)}  # Красная площадь
@@ -130,25 +131,17 @@ def build_trip(log=print):
           if n==0: cons.append("Тексты отзывов ещё не разобраны" if (d.get("total") or m.get("cnt")) else "Отзывов пока нет")
           if not cons: cons.append("Повторяющихся жалоб нет")
           yes=d["fac"]["yes"]; am=[k for k,rx in AMR if any(re.search(rx,f,re.I) for f in yes)]
-          comp=None
-          if n>=5 and score:
-              per=lambda x:x/(n+50)*100
-              pen=min(2.0,0.30*per(c["roach"])+0.10*per(c["ants"])+0.12*per(c["smell"])+0.20*per(c["damp"]))
-              negsh=a["neg"]/max(1,n)*100
-              negadj=max(-0.5,min(0.15,-(negsh-5)*0.03)) if n>=60 else min(0,-(negsh-5)*0.03)
-              trend=max(-0.3,min(0.2,(a["recent"]-score)*0.5)) if n>=120 and a["recent"] else 0
-              small=-0.3 if n<15 else 0
-              base=round((n*score+25*MEDS)/(n+25),2)
-              comp=[base,round(-pen,2),round(negadj,2),round(trend,2),small]
+          review_count=cr.get("showCommentNum") or d.get("total") or m.get("cnt") or 0
+          comp,rating=rating_components(score,review_count,a,HOT[hid]["nt"][2],MEDS)
           H.append(dict(id=hid,nm=m["name"],cat=m.get("cat") or "",st=m.get("star") or 0,z=zone_of(city,m,lat or 0,lng or 0),la=lat,ln=lng,
-            sc=score,cl=cr.get("ratingRoom"),fa=cr.get("ratingFacility"),lo=cr.get("ratingLocation"),se=cr.get("ratingService"),rv=cr.get("showCommentNum") or d.get("total") or 0,an=n,tot=d.get("total") or n,
+            sc=score,cl=cr.get("ratingRoom"),fa=cr.get("ratingFacility"),lo=cr.get("ratingLocation"),se=cr.get("ratingService"),rv=review_count,an=n,tot=review_count or n,
             ng=round(a["neg"]/max(1,n)*100,1) if n else None,ns=round(c["noise"]/max(1,n)*100,1) if n else None,
             ro=c["roach"],ror=a["crec"]["roach"],at=c["ants"],sm=c["smell"],smr=a["crec"]["smell"],dm=c["damp"],dmr=a["crec"]["damp"],ins=c["insect"],insr=a["crec"]["insect"],
             am=am,amn=len(yes),yr=d["fac"].get("yr",""),ry=d["fac"].get("rn",""),pr=pros,co=cons[:5],cp=comp,sv=int(hid in sv),
             o=m.get("oid") or "",mt=m.get("metro") or [],ad=m.get("addr") or "",
             source=m.get("source","ostrovok"),sourceScore=m.get("sourceScore",score),scoreMax=m.get("scoreMax",10),
             sourceKm=m.get("km") if m.get("source")!="ostrovok" else None,
-            url=m.get("url"),reviewSource=m.get("source","ostrovok")))
+            url=m.get("url"),reviewSource=m.get("source","ostrovok"),rating=rating,reviewCoverage=HOT[hid].get("reviewCoverage")))
       # у части жилья (чаще квартир) Островок не указывает район: берём район ближайших соседей в радиусе 700 м
       rest=G[city]["districts"][-1]["t"]
       known=[h for h in H if h["z"]!=rest and h["la"]]
