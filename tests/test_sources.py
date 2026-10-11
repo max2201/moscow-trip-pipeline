@@ -21,6 +21,21 @@ def offer(**changes):
             "score": 4.5, "scoreMax": 5, "cnt": 100, **changes}
 
 class SourcesTest(unittest.TestCase):
+    def test_late_collection_failure_keeps_checkpoint_and_old_offers(self):
+        from run import cmd_sources
+        def fail_after_checkpoint(*args, **kwargs):
+            kwargs["checkpoint"]([offer(externalId="new")], {"pages": 1, "reason": "in_progress", "complete": False})
+            raise TimeoutError("late page failed")
+        with tempfile.TemporaryDirectory() as directory, patch.object(sources, "CACHE", Path(directory)), \
+                patch("run.stops", return_value=[STOP]), patch("run.log"), \
+                patch("run.browser_sources.crawl", side_effect=fail_after_checkpoint):
+            sources.save_snapshot("yandex", STOP, [offer(externalId="old")])
+            cmd_sources(Namespace(source=["yandex"], stop=None, max_pages=1))
+            snap = read_json(sources.snapshot_path("m1", "yandex"))
+            self.assertEqual({x["externalId"] for x in snap["items"]}, {"old", "new"})
+            self.assertFalse(snap["complete"])
+            self.assertEqual(snap["coverage"]["pages"], 1)
+
     def test_automatic_bad_card_does_not_discard_valid_offers(self):
         from run import cmd_sources
         with tempfile.TemporaryDirectory() as directory, patch.object(sources, "CACHE", Path(directory)), \

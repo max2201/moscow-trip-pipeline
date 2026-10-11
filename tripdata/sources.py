@@ -36,7 +36,7 @@ def search_url(source, stop):
         "yandex": {"adults": 2, "checkinDate": ci, "checkoutDate": co, "geoId": 213, "roomCount": 1, "maxPrice": 40000},
         "101hotels": {"in": ru(ci), "out": ru(co), "adults": 2},
         "tvil": {"o[maleCount]": 2, "o[arrival]": ci, "o[departure]": co},
-        "tutu": {"check_in": ci, "check_out": co, "room[0]": "2.", "geo_id": 2657260, "geo_type": "locality", "geo_name": "Москва"},
+        "tutu": {"check_in": ci, "check_out": co, "room[0]": "2.", "geo_id": 2657260, "geo_type": "locality", "geo_name": "Москва", "filters[0]": "rangeFilters.price.0-40000-per_stay"},
         "onetwotrip": {"id": 524901, "to": "Москва", "type": "geo", "country_slug": "russia", "city_slug": "moscow", "date_start": ci, "date_end": co, "rooms[0]": 2, "country_code": "RU", "page": 1, "s": "true", "prices[minPriceValue]": 0, "prices[maxPriceValue]": 40000},
         "sutochno": {"guests_adults": 2, "id": 397366, "type": "city", "term": "Москва", "occupied": f"{ci};{co}"},
     }.get(source, {})
