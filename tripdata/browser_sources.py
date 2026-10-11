@@ -40,9 +40,20 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
         seen_cards = set()
         stage = "Сбор карточек"
         failure = None
+        last_scroll = None
         try:
-            for step in range(max_pages):
-                page.wait_for_timeout(1500)
+            for step in range(max_pages * 10 if source == "tutu" else max_pages):
+                page.wait_for_timeout(250 if source == "tutu" else 1500)
+                scroll = page.evaluate("""() => {
+                    let e = document.elementFromPoint(400, 600);
+                    while (e) {
+                        if (e.scrollHeight > e.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(e).overflowY)) return e.scrollTop;
+                        e = e.parentElement;
+                    }
+                    return document.scrollingElement.scrollTop;
+                }""")
+                moved = last_scroll is None or scroll != last_scroll
+                last_scroll = scroll
                 title = page.title().lower()
                 if "captcha" in page.url.lower() or "капч" in title or "доступ ограничен" in title:
                     raise ValueError("Площадка требует проверку в браузере; снимок сохранён")
@@ -77,7 +88,7 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                 log(f"{source}: {len(result)} предложений")
                 if checkpoint is not None and result and (step == 0 or (step + 1) % 10 == 0):
                     checkpoint(list(result.values()), {"pages": step + 1, "priced": len(seen_cards), "saved": len(result), "complete": False, "reason": "in_progress"})
-                if unchanged >= 5:
+                if unchanged >= 5 and not (source == "tutu" and moved):
                     # A stable bottom is recorded as partial unless the source
                     # explicitly confirms the end. Never claim all offers merely
                     # because repeated scrolls produced no new priced cards.
@@ -121,7 +132,9 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                     # Aim the wheel at the list, away from the map. The old wheel
                     # could zoom the map while leaving the hotel list unchanged.
                     page.mouse.move(400, 600)
-                    page.mouse.wheel(0, 7000)
+                    # Tutu requests prices only for cards entering the viewport.
+                    # Large wheel jumps skipped the intervening properties.
+                    page.mouse.wheel(0, 700 if source == "tutu" else 7000)
                 # Wait for fresh priced objects instead of checking once immediately
                 # after the scroll. Slow price loading must not consume page budget.
                 previous_ids = list(seen_cards)
