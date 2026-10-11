@@ -47,7 +47,7 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                 if "captcha" in page.url.lower() or "капч" in title or "доступ ограничен" in title:
                     raise ValueError("Площадка требует проверку в браузере; снимок сохранён")
                 stage = "Чтение цен"
-                batch = page.evaluate(SCRIPT, {"source": source, "stop": stop})
+                batch = page.evaluate(SCRIPT, {"source": source, "stop": stop, "skipIds": list(seen_cards)})
                 seen_cards.update(x["externalId"] for x in batch)
                 if source == "onetwotrip":
                     confirmed = []
@@ -126,8 +126,8 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                 # after the scroll. Slow price loading must not consume page budget.
                 previous_ids = list(seen_cards)
                 try:
-                    page.wait_for_function(f"arg => ({SCRIPT})(arg.input).some(x => !arg.ids.includes(x.externalId))",
-                                          arg={"input": {"source": source, "stop": stop}, "ids": previous_ids}, timeout=15000)
+                    page.wait_for_function(f"arg => ({SCRIPT})(arg.input).length > 0",
+                                          arg={"input": {"source": source, "stop": stop, "skipIds": previous_ids}}, timeout=15000)
                 except Exception:
                     pass
         except Exception as error:
