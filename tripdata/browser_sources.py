@@ -15,6 +15,14 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
         context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
         page = context.new_page()
         page.goto(search_url(source, stop), wait_until="domcontentloaded", timeout=60000)
+        if source == "tvil":
+            price = page.get_by_test_id("range-input-max")
+            price.wait_for(state="visible", timeout=60000)
+            page.wait_for_function("() => !document.querySelector('[data-testid=range-input-max]').readOnly", timeout=60000)
+            price.press("Control+A")
+            price.press_sequentially(str(40000 // stop["nights"]))
+            price.press("Tab")
+            page.get_by_role("button", name="Найти", exact=True).click()
         if source == "yandex" and not page.locator('h3[itemprop="name"]').count():
             button = page.get_by_role("button", name="Найти", exact=True)
             if button.count():
