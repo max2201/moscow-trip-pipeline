@@ -35,16 +35,17 @@ def cmd_prices(args):
         log(f"{s['id']} {s['title']} {s['ci']}–{s['co']}: собираю выдачу")
         cfg = load_settings()
         center = (s["alat"], s["alng"]) if s.get("alat") else None
+        coverage = {}
         try:
-            items = ostrovok.crawl_list(CITY_IDS[s["city"]], ci, co, log=log, center=center, max_km=cfg.get("maxKm"), max_night=cfg["limits"].get(s["city"]))
-            return s, ci, co, items
+            items = ostrovok.crawl_list(CITY_IDS[s["city"]], ci, co, log=log, center=center, max_km=cfg.get("maxKm"), max_night=cfg["limits"].get(s["city"]), coverage=coverage)
+            return s, ci, co, items, coverage
         except Exception as error:
             set_status("ostrovok", s, "error", type(error).__name__)
             log(s["id"], "Островок: снимок сохранён", type(error).__name__)
-            return s, ci, co, None
+            return s, ci, co, None, coverage
 
     with ThreadPoolExecutor(3) as ex:
-        for s, ci, co, items in ex.map(work, todo):
+        for s, ci, co, items, coverage in ex.map(work, todo):
             if items is None:
                 continue
             priced = sum(1 for h in items if h.get("night"))
@@ -55,7 +56,7 @@ def cmd_prices(args):
             stamp = now()
             items = [{**item, "ci": s["ci"], "co": s["co"], "adults": 2, "collectedAt": stamp} for item in items]
             write_json(list_path(s["id"]), items)
-            set_status("ostrovok", s, "ok", count=len(items), collected_at=stamp)
+            set_status("ostrovok", s, "ok", count=len(items), collected_at=stamp, coverage=coverage)
             for it in items:  # последняя выдача нужна только для отелей из плана и сохранённых
                 if it["id"] in keep: meta[str(it["id"])] = {**it, "_ci": ci, "_co": co}
             log(f"{s['id']}: {len(items)} отелей, {priced} с ценой")
@@ -92,7 +93,7 @@ def cmd_sources(args):
                 continue
             try:
                 coverage = {}
-                items = hotels101.crawl(s, max_pages=args.max_pages, log=log) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage)
+                items = hotels101.crawl(s, max_pages=args.max_pages, log=log, coverage=coverage) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage)
                 # Validate cards individually. A malformed distance/rating in one
                 # card must not discard the other confirmed offers. Manual
                 # imports and the snapshot shrink/empty guards remain strict.

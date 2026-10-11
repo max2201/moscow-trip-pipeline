@@ -98,7 +98,7 @@ def parse(h, names):
     }
 
 
-def crawl_list(region_id, ci, co, log=print, slug="russia/moscow", max_km=None, max_night=None, center=None, adults=2, max_pages=400):
+def crawl_list(region_id, ci, co, log=print, slug="russia/moscow", max_km=None, max_night=None, center=None, adults=2, max_pages=400, coverage=None):
     """Доступные на даты отели города. ci/co — 'ГГГГММДД'.
     center=(lat, lng) и max_km — только в этом радиусе; max_night — не дороже этой цены за ночь (фильтры самого Островка)."""
     names = neighbourhoods(slug)
@@ -123,6 +123,7 @@ def crawl_list(region_id, ci, co, log=print, slug="russia/moscow", max_km=None, 
         if j.get("search_finished"):
             break
         time.sleep(3)
+    finished = bool(j.get("search_finished"))
     pages = min(math.ceil(total / 20), max_pages)
     log(f"островок: {total} отелей с ценой, {pages} страниц")
     out = {}
@@ -137,6 +138,10 @@ def crawl_list(region_id, ci, co, log=print, slug="russia/moscow", max_km=None, 
         if p % 25 == 0:
             log(f"  страница {p}/{pages}: {len(out)} отелей")
         time.sleep(0.3)
+    if coverage is not None:
+        complete = finished and len(out) == total and pages >= math.ceil(total / 20)
+        coverage.update(pages=pages, priced=len(out), expected=total, saved=len(out), complete=complete,
+                        reason="end" if complete else "limit" if pages == max_pages else "stalled")
     return list(out.values())
 
 

@@ -12,6 +12,7 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(locale="ru-RU", viewport={"width": 1440, "height": 1000})
+        context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "media", "font"} else route.continue_())
         page = context.new_page()
         page.goto(search_url(source, stop), wait_until="domcontentloaded", timeout=60000)
         if source == "yandex" and not page.locator('h3[itemprop="name"]').count():
@@ -24,6 +25,14 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None):
             page.wait_for_function(f"arg => ({SCRIPT})(arg).length > 0", arg={"source": source, "stop": stop}, timeout=90000)
         except Exception:
             raise ValueError("За 90 секунд не появились подтверждённые цены; предыдущий снимок сохранён")
+        if source == "onetwotrip":
+            # URL price parameters alone do not initialise the visible range.
+            # The UI is explicitly in whole-stay mode ("8 ночей").
+            page.get_by_role("button", name=f'{stop["nights"]} ночей', exact=True).wait_for(state="visible")
+            price_inputs = page.locator('input[inputmode="numeric"]')
+            price_inputs.nth(1).fill("40000")
+            price_inputs.nth(1).press("Tab")
+            page.wait_for_timeout(1500)
         result = {}
         unchanged = 0
         reason = "limit"
@@ -81,14 +90,17 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None):
                     reason = "end"
                     complete = True
                     break
-            elif source == "sutochno":
+            elif source in {"sutochno", "yandex"}:
                 more = page.get_by_text("Далее", exact=True)
-                if more.count():
+                if more.count() and more.first.is_enabled():
                     more.first.click()
-                else:
+                elif source == "sutochno" or more.count():
                     reason = "end"
                     complete = True
                     break
+                else:
+                    page.mouse.move(600, 600)
+                    page.mouse.wheel(0, 7000)
             else:
                 # Aim the wheel at the list, away from the map. The old wheel
                 # could zoom the map while leaving the hotel list unchanged.
