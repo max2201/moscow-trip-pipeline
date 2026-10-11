@@ -32,7 +32,7 @@ def search_url(source, stop):
     ru = lambda x: dt.date.fromisoformat(x).strftime("%d.%m.%Y")
     params = {
         "ostrovok": {"dates": f"{ru(ci)}-{ru(co)}", "guests": 2},
-        "ozon": {"Dlts": 2, "checkIn": ci, "checkOut": co, "cityOrRegionId": 140158000},
+        "ozon": {"Dlts": 2, "checkIn": ci, "checkOut": co, "cityOrRegionId": 140158000, "filters": "price=40000"},
         "yandex": {"adults": 2, "checkinDate": ci, "checkoutDate": co, "geoId": 213, "roomCount": 1},
         "101hotels": {"in": ru(ci), "out": ru(co), "adults": 2},
         "tvil": {"o[maleCount]": 2, "o[arrival]": ci, "o[departure]": co},
@@ -97,7 +97,7 @@ def normalize(source, item, stop, collected_at):
     return out
 
 
-def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=False):
+def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=False, coverage=None):
     if source not in SOURCES or source == "ostrovok":
         raise ValueError("Неизвестный дополнительный источник")
     stamp = now()
@@ -115,7 +115,7 @@ def save_snapshot(source, stop, items, mode="automatic", complete=False, merge=F
     if previous.get("ci") == stop["ci"] and previous.get("co") == stop["co"] and len(normalized) < len(previous.get("items", [])) * .5:
         raise ValueError("Выдача уменьшилась больше чем вдвое: предыдущий снимок сохранён")
     write_json(snapshot_path(stop["id"], source), {"ci": stop["ci"], "co": stop["co"], "adults": 2,
-               "collectedAt": stamp, "mode": mode, "complete": complete, "items": normalized})
+               "collectedAt": stamp, "mode": mode, "complete": complete, "coverage": coverage, "items": normalized})
     set_status(source, stop, "ok", "", len(normalized))
     return normalized
 
@@ -159,5 +159,5 @@ def source_statuses(stops):
                 "message": status.get("message", ""), "attemptedAt": status.get("attemptedAt"),
                 "collectedAt": snap.get("collectedAt") if matching else status.get("collectedAt"),
                 "mode": snap.get("mode", "automatic" if source == "ostrovok" else None),
-                "complete": bool(snap.get("complete")), "automatic": source in {"ostrovok", "101hotels", "ozon", "yandex", "sutochno", "tvil", "tutu", "onetwotrip"}})
+                "complete": bool(snap.get("complete")), "coverage": snap.get("coverage"), "automatic": source in {"ostrovok", "101hotels", "ozon", "yandex", "sutochno", "tvil", "tutu", "onetwotrip"}})
     return result

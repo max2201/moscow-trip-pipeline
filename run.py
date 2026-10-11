@@ -91,7 +91,8 @@ def cmd_sources(args):
                 set_status(source, s, "pending", "Автоматический сбор ещё не подключён; доступен импорт подтверждённых предложений")
                 continue
             try:
-                items = hotels101.crawl(s, max_pages=args.max_pages, log=log) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log)
+                coverage = {}
+                items = hotels101.crawl(s, max_pages=args.max_pages, log=log) if source == "101hotels" else browser_sources.crawl(source, s, max_pages=args.max_pages, log=log, coverage=coverage)
                 # Validate cards individually. A malformed distance/rating in one
                 # card must not discard the other confirmed offers. Manual
                 # imports and the snapshot shrink/empty guards remain strict.
@@ -103,7 +104,7 @@ def cmd_sources(args):
                     except ValueError as error:
                         log(source, "Карточка пропущена:", str(error))
                 items = confirmed
-                save_snapshot(source, s, items)
+                save_snapshot(source, s, items, complete=coverage.get("complete", False), coverage=coverage)
                 log(source, len(items), "offers saved")
             except Exception as error:
                 # No request URLs, cookies, browser state or credentials in logs/cache.
@@ -119,7 +120,7 @@ def cmd_import(args):
     matches = [s for s in stops() if s["id"] == data.get("stop")]
     if len(matches) != 1 or data.get("source") != args.source[0]:
         raise ValueError("Import source/stop mismatch")
-    items = save_snapshot(args.source[0], matches[0], data["items"], mode="manual", complete=data.get("complete", False), merge=not data.get("replace", False))
+    items = save_snapshot(args.source[0], matches[0], data["items"], mode="manual", complete=data.get("complete", False), merge=not data.get("replace", False), coverage=data.get("coverage"))
     log("Imported", len(items), "offers")
 
 
@@ -166,7 +167,7 @@ def main():
     p.add_argument("--refresh", action="store_true", help="перекачать отзывы и для уже скачанных отелей")
     p.add_argument("--source", nargs="+", choices=list(SOURCES), help="Additional sources to collect/import")
     p.add_argument("--input", help="JSON file with source, stop and dated items")
-    p.add_argument("--max-pages", type=int, default=20, help="Bounded number of pages/scrolls per source")
+    p.add_argument("--max-pages", type=int, default=1000, help="Safety limit; hitting it records partial coverage")
     a = p.parse_args()
     if a.command in ("prices", "all"): cmd_prices(a)
     if a.command in ("sources", "all"): cmd_sources(a)
