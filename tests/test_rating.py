@@ -38,6 +38,9 @@ class RatingTest(unittest.TestCase):
         sample = compact(1, {"rev": [{"t": "Всё понравилось, чисто и удобно", "r": 10, "d": "2026-10-01"}] * 5})["a"]
         with_texts, _ = rating_components(9.8, 10000, sample, {})
         self.assertGreaterEqual(sum(with_texts), sum(parts) - .5)
+        sample_only, info = rating_components(9.8, 10000, sample, {}, aggregate=False)
+        self.assertEqual(info["scoreBasis"], "sample")
+        self.assertLess(sample_only[0], parts[0])
 
     def test_absent_or_invalid_rating_is_reserved_not_guest_evidence(self):
         empty = compact(1, {"rev": []})["a"]
