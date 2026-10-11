@@ -26,8 +26,10 @@ def write_json(path, data, compact=True):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     opener = (lambda p: gzip.open(p, "wt", encoding="utf-8", compresslevel=9)) if path.suffix == ".gz" else (lambda p: open(p, "w", encoding="utf-8"))
-    with opener(path) as f:
+    temporary = path.with_name(path.name + ".tmp")
+    with opener(temporary) as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":") if compact else None, indent=None if compact else 1)
+    os.replace(temporary, path)
 
 
 def load_hotels(city):
@@ -45,9 +47,11 @@ def load_hotels(city):
 def save_hotels(city, recs):
     path = HOTELS / f"{city}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    temporary = path.with_suffix(".jsonl.tmp")
+    with open(temporary, "w", encoding="utf-8") as f:
         for hid in sorted(recs):
             f.write(json.dumps(recs[hid], ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+    os.replace(temporary, path)
 
 
 def list_path(stop_id):

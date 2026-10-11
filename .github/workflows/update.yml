@@ -26,9 +26,22 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
       - run: python -m unittest discover -s tests
-      - run: python run.py ${{ github.event.inputs.mode || 'all' }}
-      - if: github.event.inputs.mode == 'sources'
-        run: python run.py build
+      - name: Collect prices, offers and reviews
+        env:
+          MODE: ${{ github.event.inputs.mode || 'all' }}
+        run: |
+          set -e
+          if [ "$MODE" = all ]; then
+            python run.py prices
+            timeout 60m python run.py sources || test "$?" -eq 124
+            python run.py reviews
+            python run.py build
+          elif [ "$MODE" = sources ]; then
+            timeout 60m python run.py sources || test "$?" -eq 124
+            python run.py build
+          else
+            python run.py "$MODE"
+          fi
       - name: Commit new data
         run: |
           git config user.name "github-actions[bot]"

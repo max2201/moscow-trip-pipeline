@@ -37,10 +37,16 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
             # URL price parameters alone do not initialise the visible range.
             # The UI is explicitly in whole-stay mode ("8 ночей").
             page.get_by_role("button", name=f'{stop["nights"]} ночей', exact=True).wait_for(state="visible")
+            before_ids = [x["externalId"] for x in page.evaluate(SCRIPT, {"source": source, "stop": stop})]
             price_inputs = page.locator('input[inputmode="numeric"]')
-            price_inputs.nth(1).fill("40000")
+            price_inputs.nth(1).press("Control+A")
+            price_inputs.nth(1).press_sequentially("40000")
+            price_inputs.nth(1).press("Enter")
             price_inputs.nth(1).press("Tab")
-            page.wait_for_function(f"arg => {{ const xs = ({SCRIPT})(arg); return xs.length > 0 && xs.every(x => x.total <= 40000); }}", arg={"source": source, "stop": stop}, timeout=30000)
+            # Sponsored offers can exceed the range. Wait for the refreshed
+            # list, then enforce the exact budget per card during export.
+            page.wait_for_function(f"arg => {{ const xs = ({SCRIPT})(arg.input); return xs.length > 0 && (xs.some(x => !arg.ids.includes(x.externalId)) || xs.filter(x => x.total <= 40000).length >= Math.ceil(xs.length / 2)); }}",
+                                   arg={"input": {"source": source, "stop": stop}, "ids": before_ids}, timeout=30000)
         result = {}
         unchanged = 0
         reason = "limit"
@@ -105,7 +111,7 @@ def crawl(source, stop, max_pages=1000, log=print, coverage=None, checkpoint=Non
                 stage = "Переход к следующей странице"
                 if source == "onetwotrip":
                     more = page.get_by_role("button", name="Показать 15 отелей", exact=True)
-                    if more.count():
+                    if more.count() and more.is_visible() and more.is_enabled():
                         more.click()
                     else:
                         # With an active price range the source shows numbered
