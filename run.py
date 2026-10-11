@@ -81,7 +81,7 @@ def needed():
 
 
 def cmd_sources(args):
-    selected = args.source or [x for x in SOURCES if x != "ostrovok"]
+    selected = args.source or sorted((x for x in SOURCES if x != "ostrovok"), key=lambda x: x == "tutu")
     for s in [s for s in stops() if not args.stop or s["id"] in args.stop]:
         for source in selected:
             if source == "ostrovok":

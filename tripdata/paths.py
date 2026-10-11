@@ -26,8 +26,10 @@ def write_json(path, data, compact=True):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     opener = (lambda p: gzip.open(p, "wt", encoding="utf-8", compresslevel=9)) if path.suffix == ".gz" else (lambda p: open(p, "w", encoding="utf-8"))
-    with opener(path) as f:
+    temporary = path.with_name(path.name + ".tmp")
+    with opener(temporary) as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":") if compact else None, indent=None if compact else 1)
+    os.replace(temporary, path)
 
 
 def load_hotels(city):

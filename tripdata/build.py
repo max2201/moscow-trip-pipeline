@@ -102,7 +102,8 @@ def build_trip(log=print):
       for hid,(a,d,m) in AN.items():
           n=a["n"]; c=a["c"]; pp=a["p"]; cr=d.get("cr") or {}
           lat=fnum(m.get("lat")); lng=fnum(m.get("lng"))
-          score=cr.get("ratingAll") or fnum(m.get("score"))
+          # Published aggregate first; the fetched sample mean is only fallback.
+          score=fnum(m.get("score")) or cr.get("ratingAll")
           pros=[]
           if n>=5:
               cand=[]

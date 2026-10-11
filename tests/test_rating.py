@@ -1,4 +1,8 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+from tripdata.paths import write_json, read_json
 from tripdata.compact import compact
 from tripdata.rating import rating_components
 from tripdata.reviews101 import parse_reviews
@@ -6,6 +10,14 @@ from tripdata.reviews_sutochno import parse_reviews as suto_reviews
 
 
 class RatingTest(unittest.TestCase):
+    def test_interrupted_snapshot_write_preserves_previous_json_and_gzip(self):
+        for name in ("snapshot.json", "snapshot.json.gz"):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / name
+                write_json(path, {"saved": 42})
+                with patch("tripdata.paths.json.dump", side_effect=RuntimeError("interrupted")):
+                    with self.assertRaises(RuntimeError): write_json(path, {"saved": 1})
+                self.assertEqual(read_json(path), {"saved": 42})
     def test_suto_snippets_exclude_rating_label_and_owner_reply(self):
         html = '''<section class="review-section"><div class="review-section__rating"><div class="rating-badge">8,0</div><time datetime="2026-07-01"></time></div><div class="votes-section__votes"><div class="comment-text__comment"><p class="comment-text__text">Великолепно</p></div><div class="comment-text__comment"><p class="comment-text__text">Грязное бельё и тараканы… <button>Ещё</button></p></div></div><div class="owner-answer"><p class="comment-text__text">Мы всё исправили</p></div></section>'''
         reviews = suto_reviews(html * 2)

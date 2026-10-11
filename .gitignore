@@ -4,3 +4,5 @@ cache/trip_data.json
 .DS_Store
 work/
 content/browser-full-*.json
+/cache/**/*.tmp
+/site-data/**/*.tmp
