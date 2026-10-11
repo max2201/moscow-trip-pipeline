@@ -3,6 +3,7 @@ import json, re, os, math, statistics as st
 from .analyze import analyze
 from .compact import compact
 from .sources import load_list, source_statuses
+from .housing import housing_features
 from .paths import CONTENT, HOTEL_META, TRIP_DATA, SITE_DATA, read_json, write_json, list_path, load_settings, load_hotels
 
 CENTER={"msk":(55.75393,37.62079)}  # Красная площадь
@@ -173,7 +174,7 @@ def build_trip(log=print):
               dorm,shared,nowin=room_flags(m.get("room"),m.get("name"))
               free=m.get("free") if m.get("source")!="ostrovok" else any("Бесплатная отмена" in (t or "") for t in m.get("tags") or [])
               # 8-й элемент — отметки площадки бронирования (у Островка пока нет), 0
-              P[hid]=[round(total/ s["nights"]) if total else night,total,(int(free) if free is not None else None),m.get("room") or "",int(dorm),int(shared),int(nowin),m.get("tc") or 0,{"source":m.get("source","ostrovok"),"url":m.get("url"),"collectedAt":m.get("collectedAt"),"distanceBasis":"source" if m.get("lat") is None else "coordinates"}]
+              P[hid]=[round(total/ s["nights"]) if total else night,total,(int(free) if free is not None else None),m.get("room") or "",int(dorm),int(shared),int(nowin),m.get("tc") or 0,{"source":m.get("source","ostrovok"),"url":m.get("url"),"collectedAt":m.get("collectedAt"),"distanceBasis":"source" if m.get("lat") is None else "coordinates","housing":housing_features(m)}]
           an=meta.get(s["anchor"]) or {}
           # точка отсчёта расстояний: отель из плана или просто место (у Москвы — Красная площадь, alat/alng в stops.json)
           so=dict(s); so["limit"]=LIMIT.get(city,5000); so["totalLimit"]=MAX_TOTAL; so["prices"]=P; so["alat"]=fnum(an.get("lat")) or s.get("alat"); so["alng"]=fnum(an.get("lng")) or s.get("alng")
@@ -244,6 +245,7 @@ def merge_notes(D, RAW):
             h["rf"]=rf
             h["lc"]=loc(city,h)
             h["bal"]=fc["balcony"]
+            h["reviewRisks"]={k:rc.get(k,0) for k in ("theft","scam","deposit","booking","rodents","linen","hotwater","notrec")}
         print(city,"fx>0:",sum(1 for h in H if h["fx"]),"rf>0:",sum(1 for h in H if h["rf"]),"lc:",sum(1 for h in H if h["lc"]))
 
     return D
