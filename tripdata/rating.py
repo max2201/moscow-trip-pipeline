@@ -2,7 +2,7 @@
 import math
 
 
-def rating_components(score, count, analysis, risks, median=8):
+def rating_components(score, count, analysis, risks, median=8, aggregate=True):
     n = analysis["n"]
     valid_score = isinstance(score, (int, float)) and math.isfinite(score) and 0 < score <= 10
     basis = "texts" if n else "platform" if valid_score else "none"
@@ -10,7 +10,7 @@ def rating_components(score, count, analysis, risks, median=8):
     # An unrated property gets a reserved sorting value, not a claim about quality.
     # Reading a small visible sample does not erase the evidence in the
     # published aggregate. Text counts govern complaint rates, not its weight.
-    weight = min(max(count, n), 1000) or 5
+    weight = (min(max(count, n), 1000) if aggregate else n) or 5
     base = round((weight * score + 25 * median) / (weight + 25), 2) if valid_score else 6.0
     c = analysis["c"]
     penalty = negative = trend = 0
@@ -34,4 +34,5 @@ def rating_components(score, count, analysis, risks, median=8):
     return [base, round(-penalty, 2), round(negative, 2), round(trend, 2), uncertainty], {
         "basis": basis, "confidence": confidence, "textCount": n, "reviewCount": count,
         "prior": median if valid_score else 6.0,
+        "scoreBasis": "published" if valid_score and aggregate else "sample" if valid_score else "none",
     }

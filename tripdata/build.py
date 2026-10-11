@@ -103,7 +103,10 @@ def build_trip(log=print):
           n=a["n"]; c=a["c"]; pp=a["p"]; cr=d.get("cr") or {}
           lat=fnum(m.get("lat")); lng=fnum(m.get("lng"))
           # Published aggregate first; the fetched sample mean is only fallback.
-          score=fnum(m.get("score")) or cr.get("ratingAll")
+          published_score=fnum(m.get("score"))
+          score=published_score or cr.get("ratingAll")
+          aggregate=bool(published_score or (m.get("source")=="101hotels" and cr.get("ratingAll")))
+          if not score and n: score=a.get("recent")
           pros=[]
           if n>=5:
               cand=[]
@@ -133,7 +136,7 @@ def build_trip(log=print):
           if not cons: cons.append("Повторяющихся жалоб нет")
           yes=d["fac"]["yes"]; am=[k for k,rx in AMR if any(re.search(rx,f,re.I) for f in yes)]
           review_count=cr.get("showCommentNum") or d.get("total") or m.get("cnt") or 0
-          comp,rating=rating_components(score,review_count,a,HOT[hid]["nt"][2],MEDS)
+          comp,rating=rating_components(score,review_count,a,HOT[hid]["nt"][2],MEDS,aggregate=aggregate)
           H.append(dict(id=hid,nm=m["name"],cat=m.get("cat") or "",st=m.get("star") or 0,z=zone_of(city,m,lat or 0,lng or 0),la=lat,ln=lng,
             sc=score,cl=cr.get("ratingRoom"),fa=cr.get("ratingFacility"),lo=cr.get("ratingLocation"),se=cr.get("ratingService"),rv=review_count,an=n,tot=review_count or n,
             ng=round(a["neg"]/max(1,n)*100,1) if n else None,ns=round(c["noise"]/max(1,n)*100,1) if n else None,
